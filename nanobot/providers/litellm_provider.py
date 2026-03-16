@@ -277,6 +277,10 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
 
+        if "minimax" in model.lower():
+            logger.info("[MiniMax] Model: {}", model)
+            logger.info("[MiniMax] Messages: {}", kwargs.get("messages"))
+
         try:
             response = await acompletion(**kwargs)
             return self._parse_response(response)
