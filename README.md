@@ -232,6 +232,7 @@ Connect nanobot to your favorite chat platform. Want to build your own? See the 
 | **Email** | IMAP/SMTP credentials |
 | **QQ** | App ID + App Secret |
 | **Wecom** | Bot ID + Bot Secret |
+| **HTTP** | None (webhook endpoint) |
 
 <details>
 <summary><b>Telegram</b> (Recommended)</summary>
@@ -742,6 +743,61 @@ Go to the WeCom admin console → Intelligent Robot → Create Robot → select 
 ```bash
 nanobot gateway
 ```
+
+</details>
+
+<details>
+<summary><b>HTTP</b></summary>
+
+Exposes a webhook endpoint to receive messages via HTTP POST requests.
+
+**1. Configure**
+
+```json
+{
+  "channels": {
+    "http": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 18791,
+      "path": "/webhook",
+      "authToken": "your-secret-token",
+      "allowFrom": ["*"]
+    }
+  }
+}
+```
+
+**2. Run**
+
+```bash
+nanobot gateway
+```
+
+**3. Send messages**
+
+```bash
+# Health check
+curl http://localhost:18791/webhook
+
+# Send message
+curl -X POST http://localhost:18791/webhook \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-secret-token" \
+  -d '{
+    "content": "Hello nanobot!",
+    "sender_id": "user123",
+    "chat_id": "chat456"
+  }'
+```
+
+| Option | Description |
+|--------|-------------|
+| `host` | Bind address (default: `0.0.0.0`) |
+| `port` | HTTP server port (default: `18791`) |
+| `path` | Webhook path (default: `/webhook`) |
+| `authToken` | Bearer token for authentication (optional) |
+| `allowFrom` | List of allowed sender IDs (use `["*"]` to allow all) |
 
 </details>
 

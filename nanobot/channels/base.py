@@ -91,6 +91,7 @@ class BaseChannel(ABC):
         sender_id: str,
         chat_id: str,
         content: str,
+        user_id: str | None = None,
         media: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         session_key: str | None = None,
@@ -104,6 +105,7 @@ class BaseChannel(ABC):
             sender_id: The sender's identifier.
             chat_id: The chat/channel identifier.
             content: Message text content.
+            user_id: Optional user identifier for multi-user contexts.
             media: Optional list of media URLs.
             metadata: Optional channel-specific metadata.
             session_key: Optional session key override (e.g. thread-scoped sessions).
@@ -119,6 +121,7 @@ class BaseChannel(ABC):
         msg = InboundMessage(
             channel=self.name,
             sender_id=str(sender_id),
+            user_id=user_id,
             chat_id=str(chat_id),
             content=content,
             media=media or [],

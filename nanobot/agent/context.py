@@ -1,12 +1,17 @@
 """Context builder for assembling agent prompts."""
 
 import base64
+import logging
 import mimetypes
 import platform
 from pathlib import Path
 from typing import Any
 
-from nanobot.utils.helpers import current_time_str
+from nanobot.utils.helpers import current_time_str, sync_workspace_templates
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_USER_ID = "default"
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
@@ -19,16 +24,48 @@ class ContextBuilder:
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, user_id: str, user_workspace: Path | None = None, users_config: dict[str, dict] | None = None):
         self.workspace = workspace
-        self.memory = MemoryStore(workspace)
-        self.skills = SkillsLoader(workspace)
+        self.user_id = user_id
+        self.users_config = users_config or {}
+        self._user_workspaces: dict[str, Path] = {}
+        self.user_workspace = user_workspace
+        self.memory = MemoryStore(self.effective_workspace)
+        self.skills = SkillsLoader(self.effective_workspace)
+
+    @property
+    def effective_workspace(self) -> Path:
+        """Return the effective workspace (user-specific or default)."""
+        return self.user_workspace if self.user_workspace else self.workspace
+
+    def get_user_workspace(self, user_id: str | None = None) -> Path:
+        """Get the workspace path for a user, creating if needed."""
+        uid = user_id or self.user_id
+        if uid in self._user_workspaces:
+            return self._user_workspaces[uid]
+
+        if uid == DEFAULT_USER_ID:
+            user_workspace = self.workspace
+        else:
+            user_workspace = self.workspace / "users" / uid
+
+        if not user_workspace.exists():
+            user_workspace.mkdir(parents=True, exist_ok=True)
+            sync_workspace_templates(user_workspace)
+            logger.info("Created user workspace for user_id={}", uid)
+
+        self._user_workspaces[uid] = user_workspace
+        return user_workspace
+
+    def get_user_config(self, user_id: str | None = None) -> dict[str, Any]:
+        """Get the configuration for a user."""
+        uid = user_id or self.user_id
+        return self.users_config.get(uid, {})
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
         parts = [self._get_identity()]
-
-        bootstrap = self._load_bootstrap_files()
+        bootstrap = self._load_bootstrap_files(self.user_id)
         if bootstrap:
             parts.append(bootstrap)
 
@@ -55,7 +92,7 @@ Skills with available="false" need dependencies installed first - you can try in
 
     def _get_identity(self) -> str:
         """Get the core identity section."""
-        workspace_path = str(self.workspace.expanduser().resolve())
+        workspace_path = str(self.effective_workspace.expanduser().resolve())
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
@@ -104,14 +141,28 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
-    def _load_bootstrap_files(self) -> str:
-        """Load all bootstrap files from workspace."""
+    def _load_bootstrap_files(self, user_id: str) -> str:
+        """Load all bootstrap files from user workspace, copying from common workspace if missing."""
+        import shutil
+
         parts = []
+        common_workspace = Path("~/.nanobot/workspace").expanduser()
+
+        target_workspace = self.get_user_workspace(user_id)
 
         for filename in self.BOOTSTRAP_FILES:
-            file_path = self.workspace / filename
-            if file_path.exists():
-                content = file_path.read_text(encoding="utf-8")
+            target_file = target_workspace / filename
+
+            if not target_file.exists():
+                common_file = common_workspace / filename
+                if common_file.exists():
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(common_file, target_file)
+                    logger.info("Copied {} from common workspace to {}", filename, target_workspace)
+
+            if target_file.exists():
+                logger.info("Loading bootstrap file {} for user {}", filename, user_id)
+                content = target_file.read_text(encoding="utf-8")
                 parts.append(f"## {filename}\n\n{content}")
 
         return "\n\n".join(parts) if parts else ""
@@ -165,25 +216,33 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         return images + [{"type": "text", "text": text}]
 
     def add_tool_result(
-        self, messages: list[dict[str, Any]],
-        tool_call_id: str, tool_name: str, result: str,
+        self,
+        messages: list[dict[str, Any]],
+        tool_call_id: str,
+        tool_name: str,
+        result: str,
     ) -> list[dict[str, Any]]:
         """Add a tool result to the message list."""
-        messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
+        messages.append(
+            {"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result}
+        )
         return messages
 
     def add_assistant_message(
-        self, messages: list[dict[str, Any]],
+        self,
+        messages: list[dict[str, Any]],
         content: str | None,
         tool_calls: list[dict[str, Any]] | None = None,
         reasoning_content: str | None = None,
         thinking_blocks: list[dict] | None = None,
     ) -> list[dict[str, Any]]:
         """Add an assistant message to the message list."""
-        messages.append(build_assistant_message(
-            content,
-            tool_calls=tool_calls,
-            reasoning_content=reasoning_content,
-            thinking_blocks=thinking_blocks,
-        ))
+        messages.append(
+            build_assistant_message(
+                content,
+                tool_calls=tool_calls,
+                reasoning_content=reasoning_content,
+                thinking_blocks=thinking_blocks,
+            )
+        )
         return messages

@@ -36,7 +36,7 @@ def test_system_prompt_stays_stable_when_clock_changes(tmp_path, monkeypatch) ->
     monkeypatch.setattr(datetime_module, "datetime", _FakeDatetime)
 
     workspace = _make_workspace(tmp_path)
-    builder = ContextBuilder(workspace)
+    builder = ContextBuilder(workspace, user_id="test_user")
 
     _FakeDatetime.current = real_datetime(2026, 2, 24, 13, 59)
     prompt1 = builder.build_system_prompt()
@@ -50,7 +50,7 @@ def test_system_prompt_stays_stable_when_clock_changes(tmp_path, monkeypatch) ->
 def test_runtime_context_is_separate_untrusted_user_message(tmp_path) -> None:
     """Runtime metadata should be merged with the user message."""
     workspace = _make_workspace(tmp_path)
-    builder = ContextBuilder(workspace)
+    builder = ContextBuilder(workspace, user_id="test_user")
 
     messages = builder.build_messages(
         history=[],
